@@ -9,7 +9,7 @@ library(ROCR)
 library(data.table)
 
 # 1. Load Data
-data_path <- '/Users/dap45/OneDrive/Desktop/Data Analytics/DA 6813 - Analytics Applications/Week 2 - Sep 2/securebank_marketing_dataset_200k.csv'
+data_path <- '/Users/dap45/OneDrive/Desktop/Data Analytics/DA 6813 - Analytics Applications/Assignments/Collaborative Work/Data-Analytics-Applications/securebank_marketing_dataset_200k.csv'
 df = fread(data_path) |> as_tibble()
 glimpse(df)
 
