@@ -1,4 +1,4 @@
-# Load libraries 
+# Libraries 
 library(MASS)
 library(ggplot2)
 library(tidyverse)
@@ -6,123 +6,234 @@ library(corrplot)
 library(car)
 library(GGally)
 library(ROCR)
+library(data.table)
 
-# load the wine dataset from the rattle package
-df = read.csv('/Users/dap45/OneDrive/Desktop/Data Analytics/DA 6813 - Analytics Applications/Assignments/Case Study 1/securebank_marketing_dataset.csv')
-df = dplyr::select(df, -Customer_ID) # remove the customer number
+# 1. Load Data
+data_path <- '/Users/dap45/OneDrive/Desktop/Data Analytics/DA 6813 - Analytics Applications/Week 2 - Sep 2/securebank_marketing_dataset_200k.csv'
+df = fread(data_path) |> as_tibble()
+glimpse(df)
 
-# Look at the data
-names(df)
-str(df)
+# 2. Preprocessing
 
-# Data Preprocessing
+df2 <- df |>
+  # Take care of character variables
+  mutate(Gender = factor(Gender),
+         Marital_Status = factor(Marital_Status),
+         Loan_Repayment_Status = factor(Loan_Repayment_Status),
+         Digital_Banking_Usage = factor(Digital_Banking_Usage),
+         Campaign_Response = factor(Campaign_Response, levels = c(0, 1))) |>
+  # Create age groups & log income from distribution skewness
+  mutate(Age_Group = cut(Age, breaks = c(20, 30, 40, 50, 60, 70, 100),
+                         labels = c("21-30", "31-40", "41-50", "51-60", "61-70", "71+"),
+                         right = F),
+         Log_Income = log1p(Income)) |>
+  select(-Customer_ID)
 
-df <- na.omit(df)
-df <- df |>
-  mutate(across(where(is.character), as.factor))
-num_vars <- 
+# 3. Visualizations
+
+par(mfrow = c(3, 3))
+barplot(table(df2$Campaign_Response))
+hist(df2$Age)
+barplot(table(df2$Gender))
+boxplot(table(df2$Marital_Status))
+hist(df2$Income)
+hist(df2$Account_Balance)
+hist(df2$Credit_Score)
+boxplot(table(df2$Loan_Repayment_Status))
+hist(df2$Transactions_Per_Month)
+par(mfrow = c(1, 1))
+
+# Correlation 
+df2_num <- dplyr::select_if(df2, is.numeric)
+matrix = cor(df2_num)
+corrplot(matrix, method = c("number")) 
+
+# 4. Train/Test Split
+
+# Balanced dataset
+df2_yes = dplyr::filter(df2, Campaign_Response == 1)
+df2_no = dplyr::filter(df2, Campaign_Response == 0)
+df2_random = sample_n(df2_no, dim(df2_yes)[1])
+# This is from when we saw the unbalance in the histogram earlier
+df2_balance = rbind(df2_yes, df2_no_random)
+
+# Set seed
+set.seed(123)
+
+# Unbalanced
+train_index <- createDataPartition(df2$Campaign_Response, p = 0.7, list = F) 
+train <- df[train_index,]
+test <- df[-train_index,]
+
+# Balanced
+train_index_balance <- createDataPartition(df2$Campaign_Response, p = 0.7, list = F) 
+train_balance <- df[train_index_balance,]
+test_balance <- df[-train_index_balance,]
+
+# 5. Logistic Regression
+
+formula_lr <- Campaign_Response ~ Age_Group + Log_Income + Account_Balance + Credit_Score + Transactions_Per_Month + Loan_Repayment_Status + Digital_Banking_Usage + Gender + Marital_Status
+lr_model <- glm(formula_lr, data = train, family = binomial)
+lt_model_balance <- glm(formula_lr, data = train_balance, family = binomial) 
+
+summary(lr_model)
+summary(lr_model_balance)
+
+vif(lr_model)
+vif(lr_model_balance)
+
+# Unbalanced predictions
+test$prob_lr <- predict(lr_model, newdata = test, type = "response")
+test$pred_lr <- ifelse(test$prob_lr > 0.5, "1", "0") |>
+  factor(levels = c("0", "1"))
+
+# Balanced predictions
+test_balance$prob_lr <- predict(lr_model_balance, newdata = test_balance, type = "response")  
+test_balance$pred_lr <- ifelse(test_balance$prob_lr > 0.5, "1", "0") |>
+  factor(levels = c("0", "1"))
+
+# AUC & Confusion Matrix
+# Unbalanced
+roc_lr <- roc(as.numeric(as.character(test$Campaign_Response, test$prob_lr)))
+auc_lr <- roc_lr$auc
+print(paste("Logistic Regression AUC: ", auc_lr))
+print(ConfusionMatrix(test$pred_lr, test$Campaign_Response, positive = "1"))
+
+# Balanced
+roc_lr_balance <- roc(as.numeric(as.character(test$Campaign_Response, test$prob_lr)))
+auc_lr_balance <- roc_lr_balance$auc
+print(paste("Logistic Regression AUC: ", auc_lr_balance))
+print(ConfusionMatrix(test_balance$pred_lr, test_balance$Campaign_Response, positive = "1"))
+
+# 6. Decision Tree
+
+formula_ml <- Campaign_Response ~ Age_Group + Log_Income + Account_Balance + Credit_Score + Transactions_Per_Month + Loan_Repayment_Status + Digital_Banking_Usage + Gender + Marital_Status
+tree_model <- glm(formula_lr, data = train, family = "class")
+tree_model_balance <- glm(formula_lr, data = train_balance, family = "class") 
+
+rpart.plot(tree_model, main = "Decision Tree")
+rpart.plot(tree_model_balance, main = "Decision Tree")
+
+# Unbalanced predictions
+test$prob_tree <- predict(tree_model, newdata = test)[, "1"]
+test$pred_tree <- ifelse(test$prob_tree > 0.5, "1", "0") |>
+  factor(levels = c("0", "1"))
+
+# Balanced predictions
+test_balance$prob_tree <- predict(tree_model_balance, newdata = test)[, "1"]
+test_balance$pred_tree <- ifelse(test_balance$prob_tree > 0.5, "1", "0") |>
+  factor(levels = c("0", "1"))
+
+# AUC & Confusion Matrix
+# Unbalanced
+roc_tree <- roc(as.numeric(as.character(test$Campaign_Response, test$prob_tree)))
+auc_tree <- roc_tree$auc
+print(paste("Logistic Regression AUC: ", auc_tree))
+print(ConfusionMatrix(test$pred_tree, test$Campaign_Response, positive = "1"))
+
+# Balanced
+roc_tree_balance <- roc(as.numeric(as.character(test$Campaign_Response, test_balance$prob_tree)))
+auc_tree_balance <- roc_tree_balance$auc
+print(paste("Logistic Regression AUC: ", auc_tree))
+print(ConfusionMatrix(test_balance$pred_tree, test_balance$Campaign_Response, positive = "1"))
+
+# 7. Random Forest
+
+# Unbalanced
+rf_model <- randomForest(x = model.matrix(formula_ml, data = train)[, -1],
+                         y = train$Campaign_Response,
+                         ntree = 150,
+                         mtry = floor(sqrt(length(all.vars(formula_ml)))),
+                         nodesize = 50,
+                         importance = T)
+varImpPlot(rf_model, main = "Random Forest")
+
+# Balanced
+rf_model_balance <- randomForest(x = model.matrix(formula_ml, data = train_balance)[, -1],
+                                 y = train_balance$Campaign_Response,
+                                 ntree = 150,
+                                 mtry = floor(sqrt(length(all.vars(formula_ml)))),
+                                 nodesize = 50,
+                                 importance = T)
+varImpPlot(rf_model_balance, main = "Random Forest")
+
+# Unbalanced predictions
+test_rf <- model.matrix(formula_ml, data = test)[, -1]
+test$prob_rf <- predict(rf_model, newdata = test_rf, type = "prob")[, "1"]
+test$pred_rf <- ifelse(test$prob_rf > 0.5, "1", "0") |>
+  factor(levels = c("0", "1"))
+
+# Balanced predictions
+test_rf_balance <- model.matrix(formula_ml, data = test_balance)[, -1]
+test$prob_rf_balance <- predict(rf_model_balance, newdata = test_rf_balance, type = "prob")[, "1"]
+test$pred_rf_balance <- ifelse(test_balance$prob_rf_balance > 0.5, "1", "0") |>
+  factor(levels = c("0", "1"))
+
+# AUC & Confusion Matrix
+# Unbalanced
+roc_rf <- roc(as.numeric(as.character(test$Campaign_Response, test$prob_rf)))
+auc_rf <- roc_rf$auc
+print(paste("Logistic Regression AUC: ", auc_rf))
+print(ConfusionMatrix(test$pred_rf, test$Campaign_Response, positive = "1"))
+
+# Balanced
+roc_rf_balance <- roc(as.numeric(as.character(test$Campaign_Response, test_balance$prob_rf_balance)))
+auc_rf_balance <- roc_rf_balance$auc
+print(paste("Logistic Regression AUC: ", auc_rf_balance))
+print(ConfusionMatrix(test_balance$pred_rf_balance, test_balance$Campaign_Response, positive = "1"))
+
+# 8. ROI Simulation
+
+cost_per_contact <- 5
+revenue_per_conversion <- 250
+
+simulate_roi <- function(df_probs, prob_col = "prob"){
+  n_total <- nrow(df_probs)
   
-  # Outlier detection (boxplots)
+  # Mass marketing
+  mass_contacts <- n_total
+  mass_conversions <- sum(as.numeric(as.character(df_probs$Campaign_Response)))
+  mass_cost <- mass_contacts * cost_per_contact
+  mass_revenue <- mass_conversions * revenue_per_conversion
+  mass_roi <- (mass_revenue - mass_cost) / mass_cost
   
-  "Age"
+  # Top 20%
+  top20_n <- ceiling(0.20 * n_total)
+  top20 <- df_probs %>% arrange(desc(.data[[prob_col]])) %>% slice(1:top20_n)
+  top20_conversions <- sum(as.numeric(as.character(top20$Campaign_Response)))
+  top20_cost <- top20_n * cost_per_contact
+  top20_revenue <- top20_conversions * revenue_per_conversion
+  top20_roi <- (top20_revenue - top20_cost) / top20_cost
+  
+  # Top 10%
+  top10_n <- ceiling(0.10 * n_total)
+  top10 <- df_probs %>% arrange(desc(.data[[prob_col]])) %>% slice(1:top10_n)
+  top10_conversions <- sum(as.numeric(as.character(top10$Campaign_Response)))
+  top10_cost <- top10_n * cost_per_contact
+  top10_revenue <- top10_conversions * revenue_per_conversion
+  top10_roi <- (top10_revenue - top10_cost) / top10_cost
+  
+  tibble(scenario = c("Mass (all)", "Target top 20%", "Target top 10%"),
+         contacts = c(mass_contacts, top20_n, top10_n),
+         conversions = c(mass_conversions, top20_conversions, top10_conversions),
+         cost = c(mass_cost, top20_cost, top10_cost),
+         revenue = c(mass_revenue, top20_revenue, top10_revenue),
+         ROI = c(as.numeric(mass_roi), as.numeric(top20_roi), as.numeric(top10_roi)))
+}
 
-"Gender" 
+roi_lr <- simulate_roi(test |> rename(prob = prob_lr))
+roi_lr_bal <- simulate_roi(test_bal |> rename(prob = prob_lr))
 
-"Marital_Status"
+roi_tree <- simulate_roi(test |> rename(prob = prob_tree))
+roi_tree_bal <- simulate_roi(test_bal |> rename(prob = prob_tree))
 
-"Income"
-
-"Account_Balance"
-
-"Credit_Score"
-
-"Loan_Repayment_Status"
-
-"Transactions_Per_Month"
-
-"Digital_Banking_Usage"
-
-"Campaign_Response"   
-
-
-# Class imbalance
-# 75% 0's
-# Predicts mostly 1's
-
-
-
-# ____________________________________________________________________________________________________
-
-
-# Check if it is a classification problem
-levels(df$Attrition_Flag)
-
-# You can take a look at the relationships between the variables. 
-df_num <- dplyr::select_if(df, is.numeric)
-M = cor(df_num)
-corrplot(M, method = c("number")) # try 'color', 'square', 'ellipse', 'shade', 'color', 'pie'.
-
-df = dplyr::select(df, -Total_Trans_Ct) # highly correlated with Total trans amount
-## note the select function from dplyr and MASS conflict. 
-
-pairs(df_num) # quick look at data distributions
-ggplot(data = df) +
-  geom_bar(mapping = aes(x = Attrition_Flag, fill = Education_Level), position = "dodge")  ## imbalance in data
-
-ggplot(data = df, mapping = aes(x = Attrition_Flag, y = Credit_Limit)) + geom_boxplot() ## Visualizations
-
-# Split data into training and testing samples
-# Setting seed locks the random number generator. 
-set.seed(1)
-tr_ind <- sample(nrow(df),0.8*nrow(df),replace = F) # Setting training sample to be 80% of the data
-dftrain <- df[tr_ind,]
-dftest <- df[-tr_ind,]
-
-# With logistic regression
-m1.log = glm(Attrition_Flag ~ ., data = dftrain, family = binomial)
-summary(m1.log) ## look at results
-vif(m1.log) # double check multicollinearity
-
-# Predict the responses on the testing data. 
-predprob_log <- predict.glm(m1.log, dftest, type = "response")  ## for logit
-predclass_log = ifelse(predprob_log >= 0.5, "Existing Customer", "Attrited Customer")
+roi_rf <- simulate_roi(test |> rename(prob = prob_rf))
+roi_rf_bal <- simulate_roi(test_bal |> rename(prob = prob_rf))
 
 
-
-## Resample with more balanced data 
-df_ext_cust = df %>% filter(Attrition_Flag == "Existing Customer")
-df_att_cust = df %>% filter(Attrition_Flag == "Attrited Customer")
-sample_ext_cust = sample_n(df_ext_cust, nrow(df_att_cust))
-df_bal = rbind(df_att_cust,sample_ext_cust)
-
-# Split data into training and testing balanced samples
-set.seed(1)
-tr_ind_bal <- sample(nrow(df_bal),0.8*nrow(df_bal),replace = F) # Setting training sample to be 80% of the data
-dftrain_bal <- df_bal[tr_ind_bal,]
-dftest_bal <- df_bal[-tr_ind_bal,]
-
-### Build model with balanced data
-m1.log_bal = glm(Attrition_Flag ~ ., data = dftrain_bal, family = binomial)
-summary(m1.log_bal) ## look at results
-vif(m1.log_bal) # double check multicollinearity
-
-# Predict the responses on the balanced testing data. 
-predprob_log_bal <- predict.glm(m1.log_bal, dftest_bal, type = "response")  ## for logit
-predclass_log_bal = ifelse(predprob_log_bal >= 0.5, "Existing Customer", "Attrited Customer")
-
-
-
-# Compare to actual results using the confusion matrix. 
-caret::confusionMatrix(as.factor(predclass_log), dftest$Attrition_Flag, positive = "Existing Customer")
-caret::confusionMatrix(as.factor(predclass_log_bal), dftest_bal$Attrition_Flag, positive = "Existing Customer")
-
-
-
-## variable selection - reduce complexity if the model
-m2.log_bal = step(glm(Attrition_Flag ~ ., data = dftrain_bal, family = binomial), direction = "backward") # stepwise backward elim.
-summary(m2.log_bal) ## look at results
-vif(m2.log_bal) # double check multicollinearity
-# Predict the responses on the testing data. 
-predprob2_log_bal <- predict.glm(m2.log_bal, dftest_bal, type = "response")  ## for logit
-predclass2_log_bal = ifelse(predprob2_log_bal >= 0.5, "Existing Customer", "Attrited Customer")
-caret::confusionMatrix(as.factor(predclass2_log_bal), dftest_bal$Attrition_Flag, positive = "Existing Customer")
+print(list(Logistic = roi_lr, 
+           BalancedLogistic = roi_lr_bal,
+           Tree = roi_tree, 
+           BalancedTree = roi_tree_bal,
+           RF = roi_rf, 
+           BalancedRF = roi_rf_bal))
