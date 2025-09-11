@@ -54,14 +54,16 @@ library(car)
 library(GGally)
 library(ROCR)
 library(data.table)
+library(RCurl)
+library(tibble)
 ```
 
 Import Data
 
 ```{r Bank Data}
-data_path <- "C:/Users/kccas/OneDrive/Documents/GitHub/Data-Analytics-Applications/bank-additional-full.csv"
+data_path <- 'https://raw.githubusercontent.com/dominica-peri/Data-Analytics-Applications/main/bank-additional-full.csv'
 
-df = fread(data_path) |> as_tibble()
+df <- fread(data_path, sep = ";") |> as_tibble()
 glimpse(df)
 ```
 
