@@ -59,7 +59,7 @@ library(data.table)
 Import Data
 
 ```{r Bank Data}
-data_path <- 'bank-additional-full.cvs'
+data_path <- "C:/Users/kccas/OneDrive/Documents/GitHub/Data-Analytics-Applications/bank-additional-full.csv"
 
 df = fread(data_path) |> as_tibble()
 glimpse(df)
